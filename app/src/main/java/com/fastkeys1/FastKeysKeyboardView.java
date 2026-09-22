@@ -229,7 +229,7 @@ public class FastKeysKeyboardView extends View {
 
         Button resize=new Button(service);
         resize.setText("تغییر اندازه");
-        resize.setOnClickListener(v -> { enterResizeMode(); d.dismiss(); });
+        resize.setOnClickListener(v -> { enterResizeMode(); popup.dismiss(); });
         root.addView(resize);
 
         Button reset=new Button(service);
