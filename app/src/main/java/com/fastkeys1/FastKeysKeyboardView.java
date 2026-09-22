@@ -99,12 +99,16 @@ public class FastKeysKeyboardView extends View {
         Button emoji = drawerButton("ساخت Emoji");
         Button steering = drawerButton("فرمان ماشین");
         Button arabic = drawerButton("حرکت‌ها و صداهای عربی");
+        Button history = drawerButton("تاریخچه کلیپ‌بورد (۱۰۰)");
+        Button resize = drawerButton("Resize / Float");
 
         panel.addView(transparency);
         panel.addView(palette);
         panel.addView(emoji);
         panel.addView(steering);
         panel.addView(arabic);
+        panel.addView(history);
+        panel.addView(resize);
 
         final PopupWindow popup = new PopupWindow(panel,
                 Math.min((int)(getWidth() * 0.92f), 700),
@@ -133,6 +137,14 @@ public class FastKeysKeyboardView extends View {
             popup.dismiss();
             showArabicHarakat();
         });
+        history.setOnClickListener(v -> {
+            popup.dismiss();
+            showClipboardHistory();
+        });
+        resize.setOnClickListener(v -> {
+            popup.dismiss();
+            showResizeFloatInfo();
+        });
 
         popup.showAtLocation(this, Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0, 8);
         drawerOpen = true;
@@ -150,6 +162,41 @@ public class FastKeysKeyboardView extends View {
         lp.setMargins(0, 3, 0, 3);
         b.setLayoutParams(lp);
         return b;
+    }
+
+    private void showResizeFloatInfo() {
+        LinearLayout root=new LinearLayout(service); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(24,16,24,16);
+        TextView title=new TextView(service); title.setText("Resize / Float"); title.setTextSize(20); title.setGravity(Gravity.CENTER); title.setTextColor(BLACK); root.addView(title,new LinearLayout.LayoutParams(-1,54));
+        TextView info=new TextView(service); info.setText("حالت شناور و تغییر اندازه در این بخش کنترل می‌شود.\nReset اندازه پیش‌فرض را برمی‌گرداند."); info.setTextSize(16); root.addView(info,new LinearLayout.LayoutParams(-1,90));
+        Button reset=new Button(service); reset.setText("Reset"); reset.setOnClickListener(v->{ service.getSharedPreferences("fast_keys_settings",0).edit().remove("float_mode").apply(); }); root.addView(reset);
+        Button okay=new Button(service); okay.setText("Okay"); root.addView(okay);
+        AlertDialog d=new AlertDialog.Builder(service).setView(root).create(); okay.setOnClickListener(v->d.dismiss()); d.show();
+    }
+
+    private void showClipboardHistory() {
+        final List<String> items = service.getClipboardHistory();
+        LinearLayout root = new LinearLayout(service);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(12, 8, 12, 8);
+        TextView title = new TextView(service);
+        title.setText("تاریخچه کلیپ‌بورد — ۱۰۰ مورد آخر");
+        title.setTextSize(19); title.setTextColor(BLACK); title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(-1, 54));
+        ScrollView scroll = new ScrollView(service);
+        LinearLayout list = new LinearLayout(service); list.setOrientation(LinearLayout.VERTICAL);
+        if (items.isEmpty()) {
+            TextView empty = new TextView(service); empty.setText("هنوز موردی در تاریخچه نیست"); empty.setGravity(Gravity.CENTER); empty.setTextSize(17);
+            list.addView(empty, new LinearLayout.LayoutParams(-1, 80));
+        } else {
+            for (int i=0;i<items.size();i++) {
+                final String item=items.get(i);
+                Button b=drawerButton((i+1)+"  "+item.replace("\n"," "));
+                b.setOnClickListener(v -> { service.pasteHistory(item); });
+                list.addView(b);
+            }
+        }
+        scroll.addView(list); root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        new AlertDialog.Builder(service).setView(root).setNegativeButton("بستن",null).show();
     }
 
     private void showColorPalette() {
@@ -798,12 +845,18 @@ public class FastKeysKeyboardView extends View {
         int row=(int)((y-gap)/(keyH+gap));
 
         if(row==0){
-            int i=(int)(x/(w/9f));
-            if(i==1)service.copyAll();
-            else if(i==3)service.paste();
-            else if(i==4)service.cut();
-            else if(i==5)service.undo();
-            else if(i==8)showDrawer();
+            float[] wt={.55f,1.45f,1.55f,1.05f,1.0f,1.0f,1.0f,1.25f,.55f};
+            float total=0f; for(float q:wt) total+=q;
+            float unit=(w-gap*(wt.length+1))/total, x0=gap; int i=0;
+            for(;i<wt.length;i++){ float r=x0+unit*wt[i]; if(x>=x0 && x<=r) break; x0=r+gap; }
+            if(i==1) service.copyAll();
+            else if(i==2) service.copyScreen();
+            else if(i==3) service.paste();
+            else if(i==4) service.cut();
+            else if(i==5) service.undo();
+            else if(i==6) service.redo();
+            else if(i==7) showClipboardHistory();
+            else if(i==8) showDrawer();
             return;
         }
 

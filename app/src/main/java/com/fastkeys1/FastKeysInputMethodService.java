@@ -7,16 +7,54 @@ import android.inputmethodservice.InputMethodService;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.ExtractedTextRequest;
+import android.os.Handler;
+import java.util.LinkedList;
 import java.util.ArrayList;
 import java.util.List;
 
 public class FastKeysInputMethodService extends InputMethodService {
     private FastKeysKeyboardView keyboard;
+    private final LinkedList<String> clipboardHistory = new LinkedList<>();
+    private ClipboardManager clipboardManager;
+    private ClipboardManager.OnPrimaryClipChangedListener clipListener;
+    private static final int MAX_HISTORY = 100;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        clipboardManager = (ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+        clipListener = () -> captureClipboard();
+        if (clipboardManager != null) clipboardManager.addPrimaryClipChangedListener(clipListener);
+        captureClipboard();
+    }
 
     @Override public View onCreateInputView() {
         keyboard = new FastKeysKeyboardView(this);
         return keyboard;
     }
+
+    @Override public void onDestroy() {
+        if (clipboardManager != null && clipListener != null) clipboardManager.removePrimaryClipChangedListener(clipListener);
+        super.onDestroy();
+    }
+
+    private void captureClipboard() {
+        try {
+            if (clipboardManager == null || !clipboardManager.hasPrimaryClip()) return;
+            ClipData d = clipboardManager.getPrimaryClip();
+            if (d == null || d.getItemCount() == 0) return;
+            CharSequence t = d.getItemAt(0).coerceToText(this);
+            if (t == null) return;
+            String s = t.toString();
+            if (s.trim().isEmpty()) return;
+            clipboardHistory.remove(s);
+            clipboardHistory.addFirst(s);
+            while (clipboardHistory.size() > MAX_HISTORY) clipboardHistory.removeLast();
+        } catch (Exception ignored) {}
+    }
+
+    public java.util.List<String> getClipboardHistory() { return new java.util.ArrayList<>(clipboardHistory); }
+    public void pasteHistory(String s) { if (s != null) { type(s); } }
 
     @Override public void onStartInputView(android.view.inputmethod.EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
@@ -69,6 +107,21 @@ public class FastKeysInputMethodService extends InputMethodService {
         if (ic == null) return;
         ic.performContextMenuAction(android.R.id.selectAll);
         ic.performContextMenuAction(android.R.id.copy);
+        captureClipboard();
+    }
+
+    public void copyScreen() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        try {
+            CharSequence before = ic.getTextBeforeCursor(10000, 0);
+            CharSequence after = ic.getTextAfterCursor(10000, 0);
+            String text = (before == null ? "" : before.toString()) + (after == null ? "" : after.toString());
+            if (clipboardManager != null) {
+                clipboardManager.setPrimaryClip(ClipData.newPlainText("Fast Keys", text));
+                captureClipboard();
+            }
+        } catch (Exception ignored) {}
     }
 
     public void cut() {
@@ -84,6 +137,18 @@ public class FastKeysInputMethodService extends InputMethodService {
     public void undo() {
         InputConnection ic = getCurrentInputConnection();
         if (ic != null) ic.performContextMenuAction(android.R.id.undo);
+    }
+
+    public void redo() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null) ic.performContextMenuAction(android.R.id.redo);
+    }
+
+    public void escape() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ESCAPE));
+        ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ESCAPE));
     }
 
     private void refresh() { if (keyboard != null) keyboard.refreshSuggestions(); }
