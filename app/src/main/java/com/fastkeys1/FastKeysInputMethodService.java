@@ -6,6 +6,8 @@ import android.content.Context;
 import android.inputmethodservice.InputMethodService;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.WindowManager;
+import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.os.Handler;
@@ -29,8 +31,19 @@ public class FastKeysInputMethodService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        // Keep the IME in the normal bottom keyboard area instead of fullscreen/extract mode.
+        if (getWindow() != null) {
+            getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
         keyboard = new FastKeysKeyboardView(this);
+        keyboard.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return keyboard;
+    }
+
+    @Override public boolean onEvaluateFullscreenMode() {
+        // Fast Keys is designed as an ordinary bottom-of-screen keyboard.
+        return false;
     }
 
     @Override public void onDestroy() {

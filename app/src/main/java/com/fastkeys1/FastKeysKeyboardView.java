@@ -18,6 +18,14 @@ public class FastKeysKeyboardView extends View {
     private boolean magnifier = false;
     private float magnifierX = -1, magnifierY = -1;
     private Runnable repeat;
+    // User-controlled keyboard resize mode. Height is persisted locally.
+    private boolean resizeMode = false;
+    private boolean resizingKeyboard = false;
+    private float resizeStartY = 0f;
+    private int resizeStartHeight = 0;
+    private final int defaultHeightDp = 320;
+    private final int minHeightDp = 220;
+    private final int maxHeightDp = 620;
     // Visual key-press light; this changes only the pressed-key appearance.
     private boolean pressGlow = false;
     private boolean pressHeld = false;
@@ -37,7 +45,7 @@ public class FastKeysKeyboardView extends View {
     };
     private final int BG=Color.rgb(239,238,232), DEFAULT_KEY=Color.rgb(250,249,244),
             BLUE=Color.rgb(20,112,235), NAVY=Color.rgb(18,38,78), BLACK=Color.rgb(25,29,34),
-            GREEN=Color.rgb(45,205,55);
+            GREEN=Color.rgb(45,205,55), ENTER_BG=Color.rgb(225,238,255), BACKSPACE_BG=Color.rgb(255,232,232), NUMBER_BG=Color.rgb(232,231,224);
     private int KEY;
 
     public FastKeysKeyboardView(FastKeysInputMethodService s){
@@ -46,6 +54,7 @@ public class FastKeysKeyboardView extends View {
         KEY = service.getSharedPreferences("fast_keys_settings", android.content.Context.MODE_PRIVATE)
                 .getInt("keyboard_key_color", DEFAULT_KEY);
         setBackgroundColor(BG);
+        post(() -> applyKeyboardHeightDp(savedKeyboardHeightDp()));
     }
 
     private void txt(Canvas c,String s,float x,float y,float size,int color){
@@ -68,6 +77,14 @@ public class FastKeysKeyboardView extends View {
         p.setStyle(Paint.Style.FILL);
         if(label!=null&&!label.isEmpty())
             txt(c,label,(l+r)/2,(t+b)/2,Math.min(22,(b-t)*.42f),color);
+    }
+
+    private void keyWithBackground(Canvas c,float l,float t,float r,float b,String label,int textColor,int backgroundColor,boolean square){
+        p.setColor(backgroundColor); p.setStyle(Paint.Style.FILL);
+        float rad=square?3:7; c.drawRoundRect(l,t,r,b,rad,rad,p);
+        p.setColor(Color.rgb(205,204,199)); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1);
+        c.drawRoundRect(l,t,r,b,rad,rad,p); p.setStyle(Paint.Style.FILL);
+        if(label!=null&&!label.isEmpty()) txt(c,label,(l+r)/2,(t+b)/2,Math.min(22,(b-t)*.42f),textColor);
     }
 
     private void magnifierIcon(Canvas c,float cx,float cy,float size,boolean active){
@@ -164,13 +181,73 @@ public class FastKeysKeyboardView extends View {
         return b;
     }
 
+    private int dp(float v) { return (int)(v * getResources().getDisplayMetrics().density + 0.5f); }
+
+    private void applyKeyboardHeightDp(int heightDp) {
+        int clamped = Math.max(minHeightDp, Math.min(maxHeightDp, heightDp));
+        android.view.ViewGroup.LayoutParams lp = getLayoutParams();
+        if (lp == null) lp = new android.view.ViewGroup.LayoutParams(-1, dp(clamped));
+        lp.height = dp(clamped);
+        lp.width = -1;
+        setLayoutParams(lp);
+        requestLayout();
+        invalidate();
+        service.getSharedPreferences("fast_keys_settings", 0).edit()
+                .putInt("keyboard_height_dp", clamped).apply();
+    }
+
+    private int savedKeyboardHeightDp() {
+        return service.getSharedPreferences("fast_keys_settings", 0)
+                .getInt("keyboard_height_dp", defaultHeightDp);
+    }
+
+    private void enterResizeMode() {
+        resizeMode = true;
+        invalidate();
+    }
+
+    private void exitResizeMode() {
+        resizeMode = false;
+        resizingKeyboard = false;
+        invalidate();
+    }
+
     private void showResizeFloatInfo() {
-        LinearLayout root=new LinearLayout(service); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(24,16,24,16);
-        TextView title=new TextView(service); title.setText("Resize / Float"); title.setTextSize(20); title.setGravity(Gravity.CENTER); title.setTextColor(BLACK); root.addView(title,new LinearLayout.LayoutParams(-1,54));
-        TextView info=new TextView(service); info.setText("حالت شناور و تغییر اندازه در این بخش کنترل می‌شود.\nReset اندازه پیش‌فرض را برمی‌گرداند."); info.setTextSize(16); root.addView(info,new LinearLayout.LayoutParams(-1,90));
-        Button reset=new Button(service); reset.setText("Reset"); reset.setOnClickListener(v->{ service.getSharedPreferences("fast_keys_settings",0).edit().remove("float_mode").apply(); }); root.addView(reset);
-        Button okay=new Button(service); okay.setText("Okay"); root.addView(okay);
-        AlertDialog d=new AlertDialog.Builder(service).setView(root).create(); okay.setOnClickListener(v->d.dismiss()); d.show();
+        LinearLayout root=new LinearLayout(service);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(24,16,24,16);
+
+        TextView title=new TextView(service);
+        title.setText("Resize / Float");
+        title.setTextSize(20); title.setGravity(Gravity.CENTER); title.setTextColor(BLACK);
+        root.addView(title,new LinearLayout.LayoutParams(-1,54));
+
+        TextView info=new TextView(service);
+        info.setText("برای تغییر اندازه، ابتدا «تغییر اندازه» را بزنید و سپس گوشه پایین‌راست کیبورد را بکشید.\nReset اندازه پیش‌فرض را برمی‌گرداند.");
+        info.setTextSize(16);
+        root.addView(info,new LinearLayout.LayoutParams(-1,110));
+
+        Button resize=new Button(service);
+        resize.setText("تغییر اندازه");
+        resize.setOnClickListener(v -> { enterResizeMode(); d.dismiss(); });
+        root.addView(resize);
+
+        Button reset=new Button(service);
+        reset.setText("Reset");
+        reset.setOnClickListener(v -> {
+            service.getSharedPreferences("fast_keys_settings",0).edit().remove("keyboard_height_dp").apply();
+            applyKeyboardHeightDp(defaultHeightDp);
+            exitResizeMode();
+        });
+        root.addView(reset);
+
+        Button okay=new Button(service);
+        okay.setText("Okay");
+        root.addView(okay);
+
+        AlertDialog d=new AlertDialog.Builder(service).setView(root).create();
+        okay.setOnClickListener(v->{ exitResizeMode(); d.dismiss(); });
+        d.show();
     }
 
     private void showClipboardHistory() {
@@ -529,6 +606,17 @@ public class FastKeysKeyboardView extends View {
 
         drawKeyboard(c);
 
+        if (resizeMode) {
+            // Visible bottom-right resize grip; it appears only in the explicit resize mode.
+            p.setColor(NAVY);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(3);
+            float g = Math.min(28f, Math.min(w, h) * 0.06f);
+            c.drawLine(w - g, h - 7, w - 7, h - g, p);
+            c.drawLine(w - g - 7, h - 7, w - 7, h - g - 7, p);
+            p.setStyle(Paint.Style.FILL);
+        }
+
         if (pressGlow) drawPressGlow(c);
 
         if(magnifier && magnifierX >= 0 && magnifierY >= 0)
@@ -554,7 +642,18 @@ public class FastKeysKeyboardView extends View {
         y+=keyH+gap;
         float[] w2={.55f,.9f,.9f,.9f,.9f,.9f,.9f,.9f,.9f,.9f,.9f,.9f,.9f,1.45f};
         String[] sy={"⌃","!\n۱","@\n۲","#\n۳","$\n۴","%\n۵","^\n۶","&\n۷","*\n۸","(\n۹",")\n۰","-\n_","=\n+","⌫"};
-        row(c,y,w2,sy);
+        float total2=0; for(float q:w2) total2+=q;
+        float ww2=(w-gap*(w2.length+1))/total2, xx2=gap;
+        for(int i=0;i<w2.length;i++){
+            float cw=w2[i]*ww2; String s2=sy[i];
+            int bg2=(i>=1 && i<=11)?NUMBER_BG:KEY; if(i==12) bg2=BACKSPACE_BG;
+            if(s2.contains("\n")){
+                keyWithBackground(c,xx2,y,xx2+cw,y+keyH,"",NAVY,bg2,false); String[] aa=s2.split("\n");
+                txt(c,aa[0],xx2+cw/2,y+keyH*.35f,Math.min(20,keyH*.3f),NAVY);
+                txt(c,aa[1],xx2+cw/2,y+keyH*.7f,Math.min(20,keyH*.3f),NAVY);
+            } else keyWithBackground(c,xx2,y,xx2+cw,y+keyH,s2,NAVY,bg2,false);
+            xx2+=cw+gap;
+        }
 
         y+=keyH+gap;
         drawArrow(c,0,y,keyH,keyH,"↑");
@@ -564,7 +663,7 @@ public class FastKeysKeyboardView extends View {
         drawArrow(c,0,y,keyH,keyH,"↓");
         String[] r4={"ش","س","ی","ب","ل","ت","ا","ک","گ","؛","«"};
         rowFrom(c,y,keyH,r4);
-        key(c,w-keyH-gap,y,w,y+2*keyH+gap,"Enter",NAVY,false);
+        keyWithBackground(c,w-keyH-gap,y,w,y+2*keyH+gap,"Enter",NAVY,ENTER_BG,false);
 
         y+=keyH+gap;
         String[] r5={"،","ژ","ذ","ز","گ","چ","پ","ب","ن","م","،","/\n؟"};
@@ -572,7 +671,7 @@ public class FastKeysKeyboardView extends View {
 
         y+=keyH+gap;
         float[] bw={1,1,1,3.9f,1.35f,1.35f,1.15f,1.15f};
-        String[] b={"!#@","◎","☺","Space","←","→","↑","↓"};
+        String[] b={"!#@","◎","😀","Space","←","→","↑","↓"};
         row(c,y,bw,b);
     }
 
@@ -666,11 +765,11 @@ public class FastKeysKeyboardView extends View {
     private void drawPressGlow(Canvas c){
         float pad = Math.max(3f, keyH * .045f);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(65, 40, 140, 255));
+        p.setColor(Color.argb(70, 255, 210, 0));
         c.drawRoundRect(pressL-pad*1.8f, pressT-pad*1.8f, pressR+pad*1.8f, pressB+pad*1.8f, 10, 10, p);
-        p.setColor(Color.argb(115, 70, 160, 255));
+        p.setColor(Color.argb(145, 255, 190, 0));
         c.drawRoundRect(pressL-pad, pressT-pad, pressR+pad, pressB+pad, 8, 8, p);
-        p.setColor(Color.argb(105, 255, 255, 255));
+        p.setColor(Color.argb(110, 255, 245, 120));
         c.drawRoundRect(pressL, pressT, pressR, pressB, 7, 7, p);
     }
 
@@ -805,16 +904,43 @@ public class FastKeysKeyboardView extends View {
     }
 
     @Override public boolean onTouchEvent(MotionEvent e){
+        float x = e.getX(), y = e.getY();
+
+        if (resizeMode) {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                float grip = Math.max(42f, dp(34));
+                if (x >= getWidth() - grip && y >= getHeight() - grip) {
+                    resizingKeyboard = true;
+                    resizeStartY = y;
+                    resizeStartHeight = getHeight();
+                    return true;
+                }
+                // In resize mode, taps outside the grip do not activate keyboard keys.
+                return true;
+            }
+            if (e.getAction() == MotionEvent.ACTION_MOVE && resizingKeyboard) {
+                int newPx = resizeStartHeight + Math.round(y - resizeStartY);
+                int newDp = Math.round(newPx / getResources().getDisplayMetrics().density);
+                applyKeyboardHeightDp(newDp);
+                return true;
+            }
+            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
+                resizingKeyboard = false;
+                return true;
+            }
+            return true;
+        }
+
         if(e.getAction()==MotionEvent.ACTION_DOWN){
-            pressRectFor(e.getX(), e.getY(), true);
+            pressRectFor(x, y, true);
             if(magnifier){
-                magnifierX=e.getX();
-                magnifierY=e.getY();
+                magnifierX=x;
+                magnifierY=y;
                 invalidate();
             }
-            handle(e.getX(),e.getY());
+            handle(x,y);
             // A normal tap keeps its light briefly; Backspace keeps it lit while held.
-            if (!isBackspaceAt(e.getX(), e.getY())) {
+            if (!isBackspaceAt(x, y)) {
                 pressHeld=false;
                 handler.removeCallbacks(clearPressGlow);
                 handler.postDelayed(clearPressGlow, 140);
@@ -822,8 +948,8 @@ public class FastKeysKeyboardView extends View {
             return true;
         }
         if(e.getAction()==MotionEvent.ACTION_MOVE && magnifier){
-            magnifierX=e.getX();
-            magnifierY=e.getY();
+            magnifierX=x;
+            magnifierY=y;
             invalidate();
             return true;
         }
@@ -919,7 +1045,7 @@ public class FastKeysKeyboardView extends View {
             int i=(int)(x/(w/8f));
             if(i==0)service.type("!#@");
             else if(i==1)service.switchInputMethod(null);
-            else if(i==2)service.type("🙂");
+            else if(i==2)service.type("😀");
             else if(i==3)service.type(" ");
             else if(i==4)service.move(KeyEvent.KEYCODE_DPAD_LEFT);
             else if(i==5)service.move(KeyEvent.KEYCODE_DPAD_RIGHT);
